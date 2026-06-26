@@ -30,6 +30,8 @@ def get_sheet():
     
     sheet_id = os.environ.get("SHEET_ID")
     spreadsheet = client.open_by_key(sheet_id)
+    worksheets = spreadsheet.worksheets()
+    print(f"Available worksheets: {[ws.title for ws in worksheets]}")
     return spreadsheet.worksheet("Agent Tracker")
 
 def is_duplicate(email):
