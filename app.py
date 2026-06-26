@@ -156,7 +156,9 @@ def submit():
         return jsonify({"result": "success"})
 
     except Exception as e:
+        import traceback
         print(f"Error: {str(e)}")
+        print(traceback.format_exc())
         return jsonify({"result": "error", "message": str(e)}), 200
 
 if __name__ == "__main__":
