@@ -8,6 +8,29 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 
+
+STATE_ABBREV = {
+    "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR",
+    "California": "CA", "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE",
+    "Florida": "FL", "Georgia": "GA", "Hawaii": "HI", "Idaho": "ID",
+    "Illinois": "IL", "Indiana": "IN", "Iowa": "IA", "Kansas": "KS",
+    "Kentucky": "KY", "Louisiana": "LA", "Maine": "ME", "Maryland": "MD",
+    "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN", "Mississippi": "MS",
+    "Missouri": "MO", "Montana": "MT", "Nebraska": "NE", "Nevada": "NV",
+    "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
+    "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH", "Oklahoma": "OK",
+    "Oregon": "OR", "Pennsylvania": "PA", "Rhode Island": "RI", "South Carolina": "SC",
+    "South Dakota": "SD", "Tennessee": "TN", "Texas": "TX", "Utah": "UT",
+    "Vermont": "VT", "Virginia": "VA", "Washington": "WA", "West Virginia": "WV",
+    "Wisconsin": "WI", "Wyoming": "WY"
+}
+
+def abbrev_states(value):
+    if not value:
+        return value
+    states = [s.strip() for s in value.split(",")]
+    return ", ".join(STATE_ABBREV.get(s, s) for s in states if s)
+
 app = Flask(__name__)
 CORS(app)
 
@@ -139,9 +162,9 @@ def submit():
             params.get("phone") or "",
             params.get("address") or "",
             today,
-            params.get("state") or "",
+            abbrev_states(params.get("state") or ""),
             status,
-            params.get("licensed-states") or "",
+            abbrev_states(params.get("licensed-states") or ""),
             params.get("npn") or "",
             params.get("years-licensed") or "",
             params.get("carriers") or "",
