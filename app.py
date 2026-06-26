@@ -28,8 +28,8 @@ def get_sheet():
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     client = gspread.authorize(creds)
     
-    sheet_id = os.environ.get("SHEET_ID")
-    spreadsheet = client.open_by_key(sheet_id)
+    sheet_url = "https://docs.google.com/spreadsheets/d/" + os.environ.get("SHEET_ID")
+    spreadsheet = client.open_by_url(sheet_url)
     worksheets = spreadsheet.worksheets()
     print(f"Available worksheets: {[ws.title for ws in worksheets]}")
     return spreadsheet.worksheet("Agent Tracker")
