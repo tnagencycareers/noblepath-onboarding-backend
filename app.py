@@ -1,191 +1,125 @@
 import os
 import json
-import time
-import threading
+import gspread
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
-
-
-STATE_ABBREV = {
-    "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR",
-    "California": "CA", "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE",
-    "Florida": "FL", "Georgia": "GA", "Hawaii": "HI", "Idaho": "ID",
-    "Illinois": "IL", "Indiana": "IN", "Iowa": "IA", "Kansas": "KS",
-    "Kentucky": "KY", "Louisiana": "LA", "Maine": "ME", "Maryland": "MD",
-    "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN", "Mississippi": "MS",
-    "Missouri": "MO", "Montana": "MT", "Nebraska": "NE", "Nevada": "NV",
-    "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
-    "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH", "Oklahoma": "OK",
-    "Oregon": "OR", "Pennsylvania": "PA", "Rhode Island": "RI", "South Carolina": "SC",
-    "South Dakota": "SD", "Tennessee": "TN", "Texas": "TX", "Utah": "UT",
-    "Vermont": "VT", "Virginia": "VA", "Washington": "WA", "West Virginia": "WV",
-    "Wisconsin": "WI", "Wyoming": "WY"
-}
-
-def abbrev_states(value):
-    if not value:
-        return value
-    states = [s.strip() for s in value.split(",")]
-    return ", ".join(STATE_ABBREV.get(s, s) for s in states if s)
 
 app = Flask(__name__)
 CORS(app)
 
-# In-memory deduplication store
-recent_submissions = {}
-lock = threading.Lock()
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
 
 def get_sheet():
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
-    if not creds_json:
-        raise Exception("GOOGLE_CREDENTIALS not set")
-    
     creds_dict = json.loads(creds_json)
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     client = gspread.authorize(creds)
-    
-    sheet_url = "https://docs.google.com/spreadsheets/d/" + os.environ.get("SHEET_ID")
-    spreadsheet = client.open_by_url(sheet_url)
-    worksheets = spreadsheet.worksheets()
-    print(f"Available worksheets: {[ws.title for ws in worksheets]}")
+    sheet_id = os.environ.get("SHEET_ID")
+    spreadsheet = client.open_by_key(sheet_id)
     return spreadsheet.worksheet("Agent Tracker")
 
-def is_duplicate(email):
-    with lock:
-        now = time.time()
-        # Clean old entries
-        for key in list(recent_submissions.keys()):
-            if now - recent_submissions[key] > 30:
-                del recent_submissions[key]
-        
-        if email in recent_submissions:
-            return True
-        
-        recent_submissions[email] = now
-        return False
-
-def parse_params(request):
-    params = {}
-    
-    # Try JSON first
-    try:
-        data = request.get_json(force=True, silent=True)
-        if data:
-            if "data" in data:
-                params = data["data"]
-            else:
-                params = data
-            return params
-    except:
-        pass
-    
-    # Try form data
-    try:
-        params = request.form.to_dict()
-        if params:
-            return params
-    except:
-        pass
-    
-    # Try raw body
-    try:
-        body = request.data.decode("utf-8")
-        for pair in body.split("&"):
-            parts = pair.split("=")
-            if len(parts) == 2:
-                from urllib.parse import unquote_plus
-                params[unquote_plus(parts[0])] = unquote_plus(parts[1])
-    except:
-        pass
-    
-    return params
-
-@app.route("/", methods=["GET"])
-def health():
-    return jsonify({"status": "NoblePath Onboarding Backend is live"})
+@app.route("/", methods=["GET", "HEAD"])
+def index():
+    return jsonify({"status": "ok"})
 
 @app.route("/submit", methods=["POST"])
 def submit():
-    # Respond immediately
     try:
-        params = parse_params(request)
-        email = (params.get("email") or "").strip().lower()
-        
-        if not email:
-            return jsonify({"result": "ok"})
-        
-        # Deduplicate
-        if is_duplicate(email):
-            return jsonify({"result": "duplicate"})
-        
-        # Determine licensed status
-        form_name   = (params.get("form-name") or "").strip()
-        is_licensed = (
-            params.get("licensed-status") == "yes" or
-            form_name == "licensed-agent-submission"
-        )
-        status = "Licensed" if is_licensed else "Unlicensed"
-        
-        first_name = params.get("first-name") or ""
-        last_name  = params.get("last-name") or ""
-        full_name  = (first_name + " " + last_name).strip()
-        today      = datetime.now().strftime("%Y-%m-%d")
-        
-        # Lead source
-        raw_source    = params.get("referral-source") or ""
-        referral_name = (params.get("referral-name") or "").strip()
-        source = raw_source
-        if raw_source.lower() == "personal referral" and referral_name:
-            source = f"Personal Referral — {referral_name}"
-        elif raw_source.lower() == "other" and referral_name:
-            source = f"Other — {referral_name}"
+        data = request.form.to_dict()
+        if not data:
+            try:
+                data = request.get_json(force=True) or {}
+                if "data" in data:
+                    data = data["data"]
+            except:
+                data = {}
 
-        # Debit balance
-        debit_balance = ""
-        if is_licensed:
-            debit_status = params.get("debit-balance") or "no"
-            debit_amt    = (params.get("debit-amount") or "").strip()
-            debit_balance = debit_amt if (debit_status == "yes" and debit_amt) else "0"
+        print(f"Received data: {data}")
 
-        na = "N/A" if is_licensed else ""
+        # Parse name
+        first = data.get("first-name", "")
+        last  = data.get("last-name", "")
+        full_name = (first + " " + last).strip()
 
-        row = [
-            full_name,
-            params.get("email") or "",
-            params.get("phone") or "",
-            params.get("address") or "",
-            today,
-            abbrev_states(params.get("state") or ""),
-            status,
-            abbrev_states(params.get("licensed-states") or ""),
-            params.get("npn") or "",
-            params.get("years-licensed") or "",
-            params.get("carriers") or "",
-            params.get("upline-current") or "",
-            debit_balance,
-            source,
-            na, na, na,  # Xcel, Exam Scheduled, Exam Passed
-            "", "", "", "", "", ""  # ICA, SureLC, Contracted, Active, First Policy, Notes
-        ]
+        # Licensed status
+        licensed_status = data.get("licensed-status", "")
+        is_licensed = "Licensed" if licensed_status == "yes" else "Unlicensed"
+
+        # Date
+        from datetime import datetime
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        # Licensing progress defaults for licensed agents
+        xcel_reg    = "N/A" if is_licensed == "Licensed" else ""
+        exam_sched  = "N/A" if is_licensed == "Licensed" else ""
+        exam_passed = "N/A" if is_licensed == "Licensed" else ""
 
         sheet = get_sheet()
-        sheet.append_row(row, value_input_option="USER_ENTERED")
 
-        return jsonify({"result": "success"})
+        # Find next empty row (after header rows 1-3)
+        all_values = sheet.col_values(1)  # Full Name column A
+        next_row = len(all_values) + 1
+        if next_row < 4:
+            next_row = 4
+
+        # Write each value to exact column position
+        # A=1 Full Name, B=2 Active/Inactive, C=3 Email, D=4 Phone
+        # E=5 Address, F=6 City, G=7 ZIP, H=8 Date Hired, I=9 Home State
+        # J=10 Status, K=11 Licensed States, L=12 NPN, M=13 Years Licensed
+        # N=14 Carriers, O=15 Upline/IMO, P=16 Debit Balance, Q=17 Lead Source
+        # R=18 Xcel Registered, S=19 Exam Scheduled, T=20 Exam Passed
+        # U=21 ICA Signed, V=22 SureLC Setup, W=23 Contracted
+        # X=24 Active Writing, Y=25 First Policy Date, Z=26 Bootcamp Date, AA=27 Notes
+
+        updates = [
+            (next_row, 1,  full_name),
+            (next_row, 2,  "—"),                                    # Active/Inactive placeholder
+            (next_row, 3,  data.get("email", "")),
+            (next_row, 4,  data.get("phone", "")),
+            (next_row, 5,  data.get("address", "")),
+            (next_row, 6,  data.get("city", "")),
+            (next_row, 7,  data.get("zip", "")),
+            (next_row, 8,  today),
+            (next_row, 9,  data.get("state", "")),
+            (next_row, 10, is_licensed),
+            (next_row, 11, data.get("licensed-states", "")),
+            (next_row, 12, data.get("npn", "")),
+            (next_row, 13, data.get("years-licensed", "")),
+            (next_row, 14, data.get("carriers", "")),
+            (next_row, 15, data.get("upline-current", "")),
+            (next_row, 16, data.get("debit-amount", "0")),
+            (next_row, 17, data.get("referral-source", "")),
+            (next_row, 18, xcel_reg),
+            (next_row, 19, exam_sched),
+            (next_row, 20, exam_passed),
+            (next_row, 21, ""),   # ICA Signed
+            (next_row, 22, ""),   # SureLC Setup
+            (next_row, 23, ""),   # Contracted
+            (next_row, 24, ""),   # Active Writing
+            (next_row, 25, ""),   # First Policy Date
+            (next_row, 26, ""),   # Bootcamp Date
+            (next_row, 27, data.get("notes", "")),
+        ]
+
+        # Batch update all cells at once for efficiency
+        cell_list = []
+        for row, col, value in updates:
+            cell = gspread.Cell(row, col, value)
+            cell_list.append(cell)
+
+        sheet.update_cells(cell_list, value_input_option="USER_ENTERED")
+
+        print(f"Successfully wrote row {next_row} for {full_name}")
+        return jsonify({"result": "success", "row": next_row})
 
     except Exception as e:
-        import traceback
         print(f"Error: {str(e)}")
-        print(traceback.format_exc())
         return jsonify({"result": "error", "message": str(e)}), 200
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
