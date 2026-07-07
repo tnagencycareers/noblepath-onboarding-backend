@@ -108,7 +108,7 @@ def submit():
             (next_row, 8,  today),
             (next_row, 9,  abbrev(data.get("state", ""))),
             (next_row, 10, is_licensed),
-            (next_row, 11, data.get("licensed-states", "")),
+            (next_row, 11, ", ".join([abbrev(s.strip()) for s in data.get("licensed-states", "").split(",") if s.strip()])),
             (next_row, 12, data.get("npn", "")),
             (next_row, 13, data.get("years-licensed", "")),
             (next_row, 14, data.get("carriers", "")),
