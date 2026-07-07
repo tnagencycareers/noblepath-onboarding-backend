@@ -114,7 +114,7 @@ def submit():
             (next_row, 14, data.get("carriers", "")),
             (next_row, 15, data.get("upline-current", "")),
             (next_row, 16, data.get("debit-amount", "0")),
-            (next_row, 17, data.get("referral-source", "")),
+            (next_row, 17, data.get("referral-source", "").replace("ZipRecruiter", "Zip Recruiter")),
             (next_row, 18, xcel_reg),
             (next_row, 19, exam_sched),
             (next_row, 20, exam_passed),
