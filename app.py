@@ -8,6 +8,29 @@ from google.oauth2.service_account import Credentials
 app = Flask(__name__)
 CORS(app)
 
+# Deduplication cache — stores email+time bucket to block duplicate webhook fires
+from datetime import datetime
+import threading
+_dedup_cache = {}
+_dedup_lock = threading.Lock()
+
+def is_duplicate(email):
+    if not email:
+        return False
+    # 10 second time bucket
+    bucket = str(int(datetime.now().timestamp() / 10))
+    key = email.lower().strip() + "_" + bucket
+    with _dedup_lock:
+        if key in _dedup_cache:
+            return True
+        _dedup_cache[key] = True
+        # Clean old keys
+        cutoff = str(int(datetime.now().timestamp() / 10) - 5)
+        old_keys = [k for k in _dedup_cache if k.split("_")[-1] < cutoff]
+        for k in old_keys:
+            del _dedup_cache[k]
+    return False
+
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
@@ -61,6 +84,12 @@ def submit():
                 data = {}
 
         print(f"Received data: {data}")
+
+        # Deduplication — block duplicate webhook fires within 10 seconds
+        email = data.get("email", "")
+        if is_duplicate(email):
+            print(f"Duplicate submission blocked for {email}")
+            return jsonify({"result": "duplicate", "message": "Skipped duplicate submission"})
 
         # Parse name
         first = data.get("first-name", "")
