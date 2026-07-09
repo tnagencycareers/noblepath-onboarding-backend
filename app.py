@@ -100,9 +100,9 @@ def submit():
         licensed_status = data.get("licensed-status", "")
         is_licensed = "Licensed" if licensed_status == "yes" else "Unlicensed"
 
-        # Date
-        from datetime import datetime
-        today = datetime.now().strftime("%Y-%m-%d")
+        # Date — offset UTC by 7 hours to approximate US time zones
+        from datetime import datetime, timezone, timedelta
+        today = (datetime.now(timezone.utc) - timedelta(hours=7)).strftime("%Y-%m-%d")
 
         # Licensing progress defaults for licensed agents
         xcel_reg    = "N/A" if is_licensed == "Licensed" else ""
