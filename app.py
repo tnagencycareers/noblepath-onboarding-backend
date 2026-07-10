@@ -100,9 +100,7 @@ def submit():
                             print(f"Duplicate blocked: {email} already submitted today")
                             return jsonify({"result": "duplicate", "message": "Skipped duplicate"})
             except Exception as dedup_err:
-                # If sheet check fails, block to be safe — better to miss one than get 4 duplicates
-                print(f"Dedup check failed — blocking submission to prevent duplicate: {dedup_err}")
-                return jsonify({"result": "error", "message": "Dedup check failed, please resubmit"}), 200
+                print(f"Dedup check failed (allowing through): {dedup_err}")
 
         # Parse name
         first = data.get("first-name", "")
