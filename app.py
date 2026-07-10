@@ -85,11 +85,23 @@ def submit():
 
         print(f"Received data: {data}")
 
-        # Deduplication — block duplicate webhook fires within 10 seconds
-        email = data.get("email", "")
-        if is_duplicate(email):
-            print(f"Duplicate submission blocked for {email}")
-            return jsonify({"result": "duplicate", "message": "Skipped duplicate submission"})
+        # Deduplication — check sheet for same email submitted in last 2 minutes
+        email = data.get("email", "").strip().lower()
+        if email:
+            try:
+                sheet_check = get_sheet()
+                emails_in_sheet = sheet_check.col_values(3)  # Col C = Email
+                dates_in_sheet = sheet_check.col_values(8)   # Col H = Date Hired
+                today_str = (datetime.now(timezone.utc) - timedelta(hours=7)).strftime("%Y-%m-%d")
+                # Check if same email was added today
+                for i, e in enumerate(emails_in_sheet):
+                    if e.strip().lower() == email:
+                        row_date = dates_in_sheet[i] if i < len(dates_in_sheet) else ""
+                        if row_date == today_str:
+                            print(f"Duplicate blocked: {email} already submitted today")
+                            return jsonify({"result": "duplicate", "message": "Skipped duplicate"})
+            except Exception as dedup_err:
+                print(f"Dedup check failed (continuing): {dedup_err}")
 
         # Parse name
         first = data.get("first-name", "")
