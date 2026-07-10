@@ -85,7 +85,7 @@ def submit():
 
         print(f"Received data: {data}")
 
-        # Deduplication — check sheet for same email submitted in last 2 minutes
+        # Deduplication — check sheet for same email submitted today
         email = data.get("email", "").strip().lower()
         if email:
             try:
@@ -93,7 +93,6 @@ def submit():
                 emails_in_sheet = sheet_check.col_values(3)  # Col C = Email
                 dates_in_sheet = sheet_check.col_values(8)   # Col H = Date Hired
                 today_str = (datetime.now(timezone.utc) - timedelta(hours=7)).strftime("%Y-%m-%d")
-                # Check if same email was added today
                 for i, e in enumerate(emails_in_sheet):
                     if e.strip().lower() == email:
                         row_date = dates_in_sheet[i] if i < len(dates_in_sheet) else ""
@@ -101,7 +100,9 @@ def submit():
                             print(f"Duplicate blocked: {email} already submitted today")
                             return jsonify({"result": "duplicate", "message": "Skipped duplicate"})
             except Exception as dedup_err:
-                print(f"Dedup check failed (continuing): {dedup_err}")
+                # If sheet check fails, block to be safe — better to miss one than get 4 duplicates
+                print(f"Dedup check failed — blocking submission to prevent duplicate: {dedup_err}")
+                return jsonify({"result": "error", "message": "Dedup check failed, please resubmit"}), 200
 
         # Parse name
         first = data.get("first-name", "")
@@ -182,6 +183,71 @@ def submit():
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({"result": "error", "message": str(e)}), 200
+
+@app.route("/signnow-webhook", methods=["POST"])
+def signnow_webhook():
+    try:
+        data = request.get_json(force=True) or {}
+        print(f"SignNow webhook received: {data}")
+
+        # SignNow sends event type and document info
+        event = data.get("event", "")
+
+        # Only process when document is fully completed/signed
+        if event not in ["document.completed", "document.signed", "envelope.completed"]:
+            return jsonify({"result": "ignored", "event": event})
+
+        # Extract signer email — SignNow includes this in the payload
+        # Try multiple possible locations in the payload
+        signer_email = None
+
+        # Try direct email field
+        signer_email = data.get("email") or data.get("signer_email")
+
+        # Try nested in document data
+        if not signer_email:
+            doc = data.get("document", data.get("data", {}))
+            signers = doc.get("signers", doc.get("recipients", []))
+            if signers and isinstance(signers, list):
+                signer_email = signers[0].get("email", "")
+
+        # Try meta field
+        if not signer_email:
+            meta = data.get("meta", {})
+            signer_email = meta.get("email", "")
+
+        if not signer_email:
+            print("SignNow webhook: could not extract email from payload")
+            print(f"Full payload: {data}")
+            return jsonify({"result": "error", "message": "No email found in payload"}), 200
+
+        signer_email = signer_email.strip().lower()
+        print(f"SignNow webhook: looking for {signer_email}")
+
+        # Find agent row in sheet by email (col C = column 3)
+        sheet = get_sheet()
+        emails = sheet.col_values(3)  # Col C = Email
+
+        row_num = None
+        for i, email in enumerate(emails):
+            if email.strip().lower() == signer_email:
+                row_num = i + 1  # 1-indexed
+                break
+
+        if not row_num:
+            print(f"SignNow webhook: email {signer_email} not found in sheet")
+            return jsonify({"result": "not_found", "email": signer_email}), 200
+
+        # Update ICA Signed column (col U = 21) to Yes
+        sheet.update_cell(row_num, 21, "Yes")
+        print(f"✅ ICA Signed updated to Yes for {signer_email} at row {row_num}")
+
+        return jsonify({"result": "success", "email": signer_email, "row": row_num})
+
+    except Exception as e:
+        print(f"SignNow webhook error: {str(e)}")
+        return jsonify({"result": "error", "message": str(e)}), 200
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
