@@ -9,7 +9,7 @@ app = Flask(__name__)
 CORS(app)
 
 # Deduplication cache — stores email+time bucket to block duplicate webhook fires
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import threading
 _dedup_cache = {}
 _dedup_lock = threading.Lock()
@@ -112,7 +112,6 @@ def submit():
         is_licensed = "Licensed" if licensed_status == "yes" else "Unlicensed"
 
         # Date — offset UTC by 7 hours to approximate US time zones
-        from datetime import datetime, timezone, timedelta
         today = (datetime.now(timezone.utc) - timedelta(hours=7)).strftime("%Y-%m-%d")
 
         # Licensing progress defaults for licensed agents
